@@ -1,0 +1,243 @@
+import numpy as np
+
+
+def eliminar_variables(system_data):
+    # Inicializamos las variables
+    full_system = system_data["full_system"]
+    candidate_system = system_data["candidate_system"]
+    initial_state = system_data["initial_state"]
+    states = np.array(system_data["states"])
+    transition_matrix = np.array(system_data["transition_matrix"])
+
+    # Extraemos las variables de cada sistema
+    full_variables = full_system["current"].copy()
+    candidate_variables = candidate_system["current"]
+
+    # Variables a eliminar (las que no están en el candidato) en orden inverso
+    variables_to_eliminate = [
+        var for var in full_variables if var not in candidate_variables
+    ]
+    variables_to_eliminate.reverse()  # Invertimos el orden
+
+    # Mantenemos un registro de los índices originales
+    original_indices = np.arange(len(states))
+    suprimidos_por_paso = []
+
+    # Para cada variable a eliminar, aplicamos el proceso
+    for var in variables_to_eliminate:
+        # Obtener el índice de la variable
+        var_index = full_variables.index(var)
+
+        # Determinar el valor inicial de la variable
+        var_value = initial_state[var_index]
+
+        # Identificar las filas a eliminar donde la variable tiene el valor CONTRARIO al inicial
+        mask = states[:, var_index] != var_value
+
+        # Guardamos los índices originales de las filas que se eliminarán
+        indices_eliminados = original_indices[mask].tolist()
+
+        # Actualizamos el registro de suprimidos
+        suprimidos_por_paso.append(
+            {
+                "variable": var,
+                "valor_inicial": var_value,
+                "indices_originales_suprimidos": indices_eliminados,
+            }
+        )
+
+        # Actualizamos los estados, los índices originales y la matriz de transición
+        states = states[~mask]
+        original_indices = original_indices[~mask]
+        transition_matrix = transition_matrix[~mask]
+
+    # Obtenemos los índices de las columnas que queremos mantener
+    indices_columnas = [full_variables.index(var) for var in candidate_variables]
+
+    # Seleccionamos solo las columnas de las variables candidatas
+    states = states[:, indices_columnas]
+
+    # Creamos el estado inicial actualizado solo con las variables candidatas
+    updated_initial_state = [
+        initial_state[full_variables.index(var)] for var in candidate_variables
+    ]
+
+    return states, updated_initial_state, suprimidos_por_paso, transition_matrix
+
+
+def encontrar_repetidos_transpuesta(states, system_data, matriz):
+    # Convertimos la lista de estados a una matriz numpy
+    matriz_numpy = np.array(states)
+
+    # Obtenemos la transpuesta de la matriz
+    transpuesta = matriz_numpy.T
+    print("Matriz transpuesta inicial:")
+    print(transpuesta)
+
+    # Extraemos las variables de cada sistema (en el futuro puedes también considerar las variables 'next' si es necesario)
+    full_system = system_data["full_system"]
+    candidate_system = system_data["candidate_system"]
+
+    full_variables = full_system[
+        "next"
+    ].copy()  # Las variables de la columna "next" de full_system
+    candidate_variables = candidate_system["next"]
+
+    # Variables a eliminar (las que no están en el candidato)
+    variables_to_eliminate = [
+        var for var in full_variables if var not in candidate_variables
+    ]
+    print(
+        f"Variables a eliminar (no están en el sistema candidato): {variables_to_eliminate}"
+    )
+
+    # Diccionario para almacenar las posiciones de las columnas con estados iguales
+    columnas_iguales = {}
+
+    # Eliminamos las columnas de la transpuesta en orden
+    for var in variables_to_eliminate:
+        # Obtener el índice de la variable en full_variables
+        var_index = full_variables.index(var)
+
+        # Verificar si el índice está dentro de los límites de la transpuesta
+        if var_index < transpuesta.shape[0]:
+            # Eliminamos la columna correspondiente a esta variable en la transpuesta
+            transpuesta = np.delete(transpuesta, var_index, axis=0)
+            print(
+                f"Después de eliminar la variable {var}, la transpuesta actualizada es:"
+            )
+            print(transpuesta)
+
+            # Comparar las columnas de la transpuesta para encontrar estados iguales
+            for i in range(transpuesta.shape[1]):
+                for j in range(i + 1, transpuesta.shape[1]):
+                    if np.array_equal(transpuesta[:, i], transpuesta[:, j]):
+                        if (i, j) not in columnas_iguales:
+                            columnas_iguales[(i, j)] = transpuesta[:, i]
+            print(f"Columnas iguales encontradas: {columnas_iguales}")
+
+            # Actualizar la matriz original sumando las columnas en las posiciones donde los estados son iguales
+            for i, j in columnas_iguales.keys():
+                if j < matriz.shape[1]:
+                    matriz[:, i] += matriz[:, j]
+
+            print("Matriz original después de actualizar sumando columnas iguales:")
+            print(matriz)
+
+            # Eliminar columnas duplicadas en la transpuesta y en la matriz original
+            columnas_a_eliminar = set()
+            for i, j in columnas_iguales.keys():
+                columnas_a_eliminar.add(j)
+
+            # Convertir el set a una lista y ordenar en orden descendente
+            columnas_a_eliminar = sorted(list(columnas_a_eliminar), reverse=True)
+            for col in columnas_a_eliminar:
+                if col < transpuesta.shape[1]:
+                    transpuesta = np.delete(transpuesta, col, axis=1)
+                if col < matriz.shape[1]:
+                    matriz = np.delete(matriz, col, axis=1)
+
+            # Limpiar el diccionario de columnas iguales para el siguiente paso
+            columnas_iguales.clear()
+
+        else:
+            print(
+                f"Índice {var_index} fuera de los límites para la transpuesta con tamaño {transpuesta.shape[0]}"
+            )
+
+        # Actualizar full_variables eliminando la variable eliminada
+        full_variables.remove(var)
+
+    print("Transpuesta después de eliminar columnas duplicadas:")
+    print(transpuesta)
+    print("Matriz original después de eliminar columnas duplicadas:")
+    print(matriz)
+    return transpuesta, matriz
+
+
+def generate_states(n):
+    """
+    Genera todos los estados posibles para n variables binarias.
+
+    :param n: Número de variables binarias
+    :return: Array de NumPy con todos los estados posibles en little-endian
+    """
+    # Lista para almacenar todos los estados
+    states = []
+
+    for i in range(2**n):
+        # Iterar sobre todos los posibles valores (0 a 2^n - 1)
+        # Convertir el número a su representación binaria
+        # format(i, f'0{n}b') asegura que siempre tengamos n dígitos, rellenando con ceros a la izquierda si es necesario
+        binary = format(i, f"0{n}b")
+
+        # Convertir la cadena binaria a una lista de enteros
+        # reversed(binary) invierte el orden para obtener la representación little-endian
+        little_endian_state = [int(bit) for bit in reversed(binary)]
+
+        # Agregar el estado a la lista de estados
+        states.append(little_endian_state)
+
+    # Convertir la lista de estados a un array de NumPy para mejor manipulación y visualización
+    return np.array(states)
+
+
+# Ejemplo de uso
+if __name__ == "__main__":
+    system_data = {
+        "full_system": {
+            "current": ["At", "Bt", "Ct", "Dt"],
+            "next": ["At+1", "Bt+1", "Ct+1", "Dt+1"],
+        },
+        "candidate_system": {
+            "current": ["At", "Bt"],
+            "next": ["At+1", "Ct+1"],
+        },
+        "initial_state": [1, 0, 0, 0],
+        "states": [
+            [0, 0, 0, 0],
+            [1, 0, 0, 0],
+            [0, 1, 0, 0],
+            [1, 1, 0, 0],
+            [0, 0, 1, 0],
+            [1, 0, 1, 0],
+            [0, 1, 1, 0],
+            [1, 1, 1, 0],
+            [0, 0, 0, 1],
+            [1, 0, 0, 1],
+            [0, 1, 0, 1],
+            [1, 1, 0, 1],
+            [0, 0, 1, 1],
+            [1, 0, 1, 1],
+            [0, 1, 1, 1],
+            [1, 1, 1, 1],
+        ],
+        "transition_matrix": [
+            [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0],
+        ],
+    }
+
+    # Ejecutamos el proceso
+    updated_states, updated_initial_state, suprimidos, updated_transition_matrix = (
+        eliminar_variables(system_data)
+    )
+    encontrar_repetidos_transpuesta(
+        system_data["states"], system_data, updated_transition_matrix
+    )
+    print("\nEstados actualizados:")
+    print(updated_transition_matrix)

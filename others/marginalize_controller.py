@@ -2,7 +2,6 @@ import numpy as np
 from typing import List, Tuple
 
 
-
 def filter_states(
     states: np.ndarray, columns: List[int], values: List[int]
 ) -> Tuple[np.ndarray, List[int]]:
@@ -40,14 +39,15 @@ def find_columns_to_filter(
 def eliminate_rows(matrix: np.ndarray, positions: List[int]) -> np.ndarray:
     """
     Elimina filas de la matriz según las posiciones dadas.
+    Acepta una lista de posiciones.
     """
     return np.delete(matrix, positions, axis=0)
 
 
-def identificar_y_sumar_pares(matriz, matriz_suma, fila_excluir):
+def identificar_y_sumar_pares(matriz, matriz_suma, filas_excluir):
     """Identifica columnas con estados repetidos y suma las columnas especificadas."""
-    # Eliminar la fila que queremos excluir
-    matriz_modificada = np.delete(matriz, fila_excluir, axis=0)
+    # Eliminar las filas que queremos excluir
+    matriz_modificada = np.delete(matriz, filas_excluir, axis=0)
 
     # Identificar pares de columnas repetidas
     estados = {}
@@ -60,10 +60,11 @@ def identificar_y_sumar_pares(matriz, matriz_suma, fila_excluir):
             estados[estado] = col
 
     # Sumar las columnas especificadas en los pares
-    suma_resultante = np.array([matriz_suma[:, col1] + matriz_suma[:, col2] for col1, col2 in pares]).T
+    suma_resultante = np.array(
+        [matriz_suma[:, col1] + matriz_suma[:, col2] for col1, col2 in pares]
+    ).T
 
     return suma_resultante
-
 
 
 def main():
@@ -126,11 +127,13 @@ def main():
     print("\nMatriz extendida final:")
     print(final_extended_matrix)
 
-    # Especificar la fila a excluir (la fila correspondiente a D)
-    fila_excluir = 3  # La fila correspondiente a D
+    # Especificar las filas a excluir
+    filas_excluir = [3, 4]  # Varias filas a excluir, por ejemplo, las filas 3 y 4
 
     # Identificar pares de columnas repetidas y sumar las columnas correspondientes
-    resultado_suma = identificar_y_sumar_pares(matriz_transpuesta, final_extended_matrix, fila_excluir)
+    resultado_suma = identificar_y_sumar_pares(
+        matriz_transpuesta, final_extended_matrix, filas_excluir
+    )
 
     # Imprimir el resultado de la suma
     print("Resultado de la suma de columnas correspondientes a los pares repetidos:")

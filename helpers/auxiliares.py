@@ -1,10 +1,9 @@
-"""Extiende la matriz de probabilidades
-original para que todas las filas tengan la misma longitud que el número de estados posibles"""
 import numpy as np
-import scipy.spatial.distance
 from scipy.spatial.distance import hamming
 
 from pyemd import emd
+
+
 def hamming_distance(a: int, b: int) -> int:
     """Calcula la distancia de Hamming entre dos enteros."""
     return (a ^ b).bit_count()
@@ -26,23 +25,11 @@ def emd_with_hamming(u: np.ndarray, v: np.ndarray) -> float:
     return emd(u, v, cost_matrix)
 
 
-# Ejemplo de uso
-u = np.array([0.1, 0.3, 0.6])
-v = np.array([0.2, 0.4, 0.4])
-
-emd_result = emd_with_hamming(u, v)
-print(f"EMD con distancia de Hamming: {emd_result}")
-
-# Ejemplo de uso
-u = np.array([0.5, 0.5])
-v = np.array([0.5, 0.5])
-
-
 def build_probabilities(probabilities, len_cs):
     extended_probabilities = [None] * len(probabilities)
     for i in range(len(probabilities)):
         extended_probabilities[i] = probabilities[i] + [0] * (
-                len_cs - len(probabilities[i])
+            len_cs - len(probabilities[i])
         )
 
     return extended_probabilities
