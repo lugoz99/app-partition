@@ -1,117 +1,32 @@
+import sys
+import os
+from typing import Dict, List
 import numpy as np
-from dataclasses import dataclass
-from typing import List, Dict, Tuple
+from ordered_set import OrderedSet
+import ordered_set
 
 
-@dataclass
-class SystemState:
-    current: List[str]
-    next: List[str]
+from logic.recursive_partitioning import RecursiveCandidateSelection
+from services.calculator_marginaze import StateProbabilityCalculator
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
-class SystemProcessor:
-    def __init__(self, transition_matrix: np.ndarray, initial_state: List[int]):
-        self.transition_matrix = transition_matrix
-        self.initial_state = np.array(initial_state)
+if __name__ == "__main__":
+    states = [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [1, 1, 0],
+        [0, 0, 1],
+        [1, 0, 1],
+        [0, 1, 1],
+        [1, 1, 1],
+    ]
 
-    @staticmethod
-    def create_state_indices(states: List[str]) -> Dict[str, int]:
-        """Creates a mapping of state names to their indices"""
-        return {state: idx for idx, state in enumerate(states)}
-
-    def get_binary_representation(self, state: int, num_bits: int) -> List[int]:
-        """Converts a decimal state to its binary representation"""
-        return [int(x) for x in format(state, f"0{num_bits}b")]
-
-    def binary_to_decimal(self, binary: List[int]) -> int:
-        """Converts a binary state representation back to decimal"""
-        return int("".join(map(str, binary)), 2)
-
-    def marginalize_transition_matrix(
-        self, full_system: SystemState, candidate_system: SystemState
-    ) -> np.ndarray:
-        """
-        Creates a marginalized transition probability matrix for the candidate system
-        """
-        # Create mappings
-        full_indices = self.create_state_indices(full_system.current)
-        candidate_vars = set(candidate_system.current)
-
-        # Get indices to keep
-        keep_indices = [
-            idx for state, idx in full_indices.items() if state in candidate_vars
-        ]
-
-        # Calculate dimensions
-        n_full = len(full_system.current)
-        n_candidate = len(candidate_system.current)
-        new_dim = 2**n_candidate
-
-        # Initialize marginalized matrix
-        marginalized = np.zeros((new_dim, new_dim))
-
-        # Perform marginalization
-        for current_state in range(2**n_full):
-            current_binary = self.get_binary_representation(current_state, n_full)
-            new_current = self.binary_to_decimal(
-                [current_binary[i] for i in keep_indices]
-            )
-
-            for next_state in range(2**n_full):
-                next_binary = self.get_binary_representation(next_state, n_full)
-                new_next = self.binary_to_decimal(
-                    [next_binary[i] for i in keep_indices]
-                )
-
-                marginalized[new_current][new_next] += self.transition_matrix[
-                    current_state
-                ][next_state]
-
-        # Normalize rows
-        row_sums = marginalized.sum(axis=1, keepdims=True)
-        normalized = np.divide(marginalized, row_sums, where=row_sums != 0)
-
-        return normalized
-
-    def process_candidate_system(
-        self, full_system: SystemState, candidate_system: SystemState
-    ) -> Tuple[np.ndarray, List[int]]:
-        """
-        Main processing function that handles the system division
-        """
-        # Get marginalized TPM
-        marginalized_tpm = self.marginalize_transition_matrix(
-            full_system, candidate_system
-        )
-
-        # Process initial state for candidate system
-        full_indices = self.create_state_indices(full_system.current)
-        candidate_initial = [
-            self.initial_state[full_indices[var]] for var in candidate_system.current
-        ]
-
-        return marginalized_tpm, candidate_initial
-
-
-def main():
-    # Example system definition
-    system_data = {
-        "full_system": SystemState(
-            current=["At", "Bt", "Ct"], next=["At+1", "Bt+1", "Ct+1"]
-        ),
-        "candidate_system": SystemState(current=["At", "Bt"], next=["At+1"]),
-        "initial_state": [0, 1],
-        # "transition_matrix": [
-        #     [0.8, 0.1, 0.05, 0.02, 0.01, 0.01, 0.005, 0.005],
-        #     [0.1, 0.7, 0.05, 0.05, 0.03, 0.03, 0.02, 0.02],
-        #     [0.05, 0.05, 0.7, 0.1, 0.03, 0.03, 0.02, 0.02],
-        #     [0.02, 0.05, 0.1, 0.7, 0.05, 0.03, 0.03, 0.02],
-        #     [0.01, 0.03, 0.03, 0.05, 0.7, 0.1, 0.05, 0.03],
-        #     [0.01, 0.03, 0.03, 0.03, 0.1, 0.7, 0.05, 0.05],
-        #     [0.005, 0.02, 0.02, 0.03, 0.05, 0.05, 0.7, 0.1],
-        #     [0.005, 0.02, 0.02, 0.02, 0.03, 0.05, 0.1, 0.7],
-        # ],
-        "transition_matrix": [
+    # Definir la matriz de probabilidades.Puede ser mas grande
+    probabilities = np.array(
+        [
             [1, 0, 0, 0, 0, 0, 0, 0],
             [0, 0, 0, 0, 1, 0, 0, 0],
             [0, 0, 0, 0, 0, 1, 0, 0],
@@ -120,30 +35,44 @@ def main():
             [0, 0, 0, 0, 0, 0, 0, 1],
             [0, 0, 0, 0, 0, 1, 0, 0],
             [0, 0, 0, 1, 0, 0, 0, 0],
-        ],
-    }
-
-    # Initialize processor
-    processor = SystemProcessor(
-        np.array(system_data["transition_matrix"]), system_data["initial_state"]
+        ]
     )
 
-    try:
-        # Process the system
-        marginalized_tpm, candidate_initial = processor.process_candidate_system(
-            system_data["full_system"], system_data["candidate_system"]
+    # Nombres de las variables.
+    var_names = [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+    ]  # entrada del usuario , puede ser mas grande
+
+    # Crear una instancia del calculador de probabilidades.
+
+    V = OrderedSet(["at", "bt", "at+1", "bt+1"])
+    # V = ["at", "bt", "at+1", "bt+1"]
+    current_values = [1, 0, 0]  # Estado inicial
+
+    v: Dict[str, List[int]] = {}
+
+    # Llenar el diccionario con listas de enteros
+    for i, key in enumerate(ordered_set.keys(), start=1):
+        v[key] = [i]
+
+    # Ahora v es {"at": [1], "bt": [2], "at+1": [3], "bt+1": [4]}
+    print(v)
+    logic = RecursiveCandidateSelection(
+        v,
+        current_values=current_values,
+        states=states,
+        probabilities=probabilities,
+        var_names=var_names,
+    )
+    particiones_optimas = logic.encontrar_particiones_optimas(V)
+    for ciclo, particion1, particion2, emd_valor in particiones_optimas:
+        print(
+            f"{ciclo} - Partición 1: {particion1}, Partición 2: {particion2}, EMD: {emd_valor}"
         )
-
-        # Print results
-        print("\nOriginal Transition Matrix:")
-        print(system_data["transition_matrix"])
-        print("\nMarginalized Transition Matrix:")
-        print(marginalized_tpm)
-        print("\nCandidate Initial State:", candidate_initial)
-
-    except Exception as e:
-        print(f"Error during processing: {e}")
-
-
-if __name__ == "__main__":
-    main()

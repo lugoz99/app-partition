@@ -41,8 +41,8 @@ class StateProbabilityCalculator:
         if values:
             # Crear un mapa de las variables relevantes con sus valores correspondientes.
             value_map = {self.var_names[i]: v for i, v in zip(positions, values)}
-            print("Value map:")
-            print(value_map)
+            # print("Value map:")
+            # print(value_map)
             # Construir un número binario como string a partir de los valores en `state_repr`.
             binary = "".join(str(value_map[c]) for c in state_repr)
 
@@ -129,6 +129,7 @@ class StateProbabilityCalculator:
                 probs = state_matrix[cs_index]
 
                 # Usar producto tensorial para combinar probabilidades.
+                # TODO: !
                 result = np.kron(result, probs) if result is not None else probs
 
             return result
@@ -148,46 +149,59 @@ class StateProbabilityCalculator:
         return self.calculate_probabilities(current_state, next_state, current_values)
 
 
-if __name__ == "__main__":
-    # Definir los estados posibles.
-    states = [
-        [0, 0, 0],
-        [1, 0, 0],
-        [0, 1, 0],
-        [1, 1, 0],
-        [0, 0, 1],
-        [1, 0, 1],
-        [0, 1, 1],
-        [1, 1, 1],
-    ]
+# if __name__ == "__main__":
+#     # Definir los estados posibles. , entrada del usuario, puede ser mas grande
+#     states = [
+#         [0, 0, 0],
+#         [1, 0, 0],
+#         [0, 1, 0],
+#         [1, 1, 0],
+#         [0, 0, 1],
+#         [1, 0, 1],
+#         [0, 1, 1],
+#         [1, 1, 1],
+#     ]
 
-    # Definir la matriz de probabilidades.
-    probabilities = np.array(
-        [
-            [1, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 1, 0, 0, 0],
-            [0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 1, 0, 0, 0, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 1],
-            [0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 0, 0, 1, 0, 0, 0, 0],
-        ]
-    )
+#     # Definir la matriz de probabilidades.Puede ser mas grande
+#     probabilities = np.array(
+#         [
+#             [1, 0, 0, 0, 0, 0, 0, 0],
+#             [0, 0, 0, 0, 1, 0, 0, 0],
+#             [0, 0, 0, 0, 0, 1, 0, 0],
+#             [0, 1, 0, 0, 0, 0, 0, 0],
+#             [0, 1, 0, 0, 0, 0, 0, 0],
+#             [0, 0, 0, 0, 0, 0, 0, 1],
+#             [0, 0, 0, 0, 0, 1, 0, 0],
+#             [0, 0, 0, 1, 0, 0, 0, 0],
+#         ]
+#     )
 
-    # Nombres de las variables.
-    var_names = ["A", "B", "C", "D", "E", "F", "G", "H"]
+#     # Nombres de las variables.
+#     var_names = [
+#         "A",
+#         "B",
+#         "C",
+#         "D",
+#         "E",
+#         "F",
+#         "G",
+#         "H",
+#     ]  # entrada del usuario , puede ser mas grande
 
-    # Crear una instancia del calculador de probabilidades.
-    calculator = StateProbabilityCalculator(states, probabilities, var_names)
+#     # Crear una instancia del calculador de probabilidades.
+#     calculator = StateProbabilityCalculator(states, probabilities, var_names)
 
-    # Calcular probabilidades para el estado "C" hacia "BC".
-    current_state = "ABC"
-    next_state = "ABC"
-    current_values = [1, 0, 0]
-    result = calculator.calculate_probabilities(
-        current_state, next_state, current_values
-    )
+#     # Calcular probabilidades para el estado "C" hacia "BC". # para diferentes variables
+#     current_state = "ABC"
+#     next_state = "ABC"
+#     current_values = [1, 0, 0]
+#     # result = calculator.calculate_probabilities(
+#     #     current_state, next_state, current_values
+#     # )
 
-    print("Calculated probabilities:")
-    print(result)
+#     print("Calculated probabilities para la distribucion :")
+#     print(
+#         calculator.get_probabilities_original_sistema(
+#             current_state, next_state, current_values
+#         )
+#     )

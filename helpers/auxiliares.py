@@ -9,6 +9,7 @@ def hamming_distance(a: int, b: int) -> int:
     return (a ^ b).bit_count()
 
 
+# sirve para sacar EMD(P(M) ⊗ P(M̄), P(V) donde M es un subconjunto de V y M̄ es su complemento.
 def emd_with_hamming(u: np.ndarray, v: np.ndarray) -> float:
     """Calcula la EMD entre dos distribuciones usando distancia de Hamming como métrica."""
     if len(u) != len(v):

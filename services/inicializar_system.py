@@ -127,8 +127,8 @@ sistema_V = probabilidad.inicializar_sistema(opcion="V")
 print("Sistema basado en V:", sistema_V)
 
 # Inicializar el sistema en base a un subconjunto VM
-VM = ["at"]
-sistema_VM = probabilidad.inicializar_sistema(opcion="VM", VM=VM)
+VM = ["at", "bt+1"]  # Subconjunto M específico
+sistema_VM = probabilidad.inicializar_sistema(opcion="VM", VM=V)
 print("Sistema basado en VM:", sistema_VM)
 
 # Inicializar el sistema en base al complemento de VM
