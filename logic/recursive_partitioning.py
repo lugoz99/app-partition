@@ -161,7 +161,7 @@ class RecursiveCandidateSelection:
 
     def calculate_g(self, subset: OrderedSet, total_set: OrderedSet):
         W_with_u = subset
-        print(W_with_u, "|", " Complete->", total_set)
+        print("subset->", W_with_u, "|", " Complete->", self.v)
         v = self.candidate.inicializar_sistema(opcion="V")
         p_v = self.complete.calculate_probabilities(
             v["Current State"], v["Next State"], v["Current Values"]
