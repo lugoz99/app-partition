@@ -1,251 +1,264 @@
 import numpy as np
 import itertools
 import pandas as pd
-import probability.marginalize as mg
-import probability.utils as utils
 from concurrent.futures import ThreadPoolExecutor
+from cut_strategy.marginalize import Marginalizer as get_marginalize_channel
 
 
-# La probabilidad de cada uno de los elementos
-# P(ABC futuro | ABC actual) = P(A futuro | ABC actual) * P(B futuro | ABC actual) * P(C futuro | ABC actual)
-# * -> Producto tensorial
-def calculate_joint_probability(probability_tables):
-    prob_array = [probability_tables[key] for key in probability_tables]
-    result = prob_array[0]
-    combinations = create_index_table(len(prob_array))
-    for arr in prob_array[1:]:
-        result = np.tensordot(result, arr, axes=0)
+class ProbabilityCalculator:
+    """
+    Encapsulates functionality for probability table calculations and tensor operations.
+    """
 
-    final_table_prob = dict(zip(combinations, result.ravel()))
-    df_final_tb = pd.DataFrame.from_dict(final_table_prob, orient='index')
-    df_final_tb = df_final_tb.reset_index()
-    df_final_tb.columns = ['state', 'probability']
+    @staticmethod
+    def calculate_joint_probability(probability_tables: dict) -> pd.DataFrame:
+        """
+        Computes the joint probability distribution from individual probability tables.
 
-    return df_final_tb
+        Args:
+            probability_tables (dict): Dictionary of probability tables by channel.
 
+        Returns:
+            pd.DataFrame: Joint probability distribution as a DataFrame.
+        """
+        prob_array = [probability_tables[key] for key in probability_tables]
+        result = prob_array[0]
+        combinations = ProbabilityCalculator.create_index_table(len(prob_array))
 
-# Indices de la combiancion de elementos durante el producto tensor
-def create_index_table(num_elements):
-    combinations = list(itertools.product([0, 1], repeat=num_elements))
-    combinations_string = [''.join(map(str, comb)) for comb in combinations]
+        for arr in prob_array[1:]:
+            result = np.tensordot(result, arr, axes=0)
 
-    return combinations_string
+        final_table_prob = dict(zip(combinations, result.ravel()))
+        df_final_tb = pd.DataFrame.from_dict(final_table_prob, orient="index")
+        df_final_tb = df_final_tb.reset_index()
+        df_final_tb.columns = ["state", "probability"]
 
+        return df_final_tb
 
-# Obtiene la tabla marginalize para los canales futuros, con sus probabilidades en un canal de estado
-# NO USADO
-def get_probability_tables(process_data, probs_table):
-    future_channels = process_data['future']
-    current_channels = process_data['current']
-    state_current_channels = process_data['state']
-    all_channels = process_data['channels']
-    probability_tables = {}
+    @staticmethod
+    def create_index_table(num_elements: int) -> list:
+        """
+        Creates a list of binary state combinations for the given number of elements.
 
-    if future_channels == '':
-        full_matrix = get_original_probability(
-            probs_table, current_channels, future_channels, all_channels)
-        maginalize_table = mg.get_marginalize_channel(
-            full_matrix, current_channels, all_channels)
+        Args:
+            num_elements (int): Number of elements.
 
-        row_sum = maginalize_table.loc[state_current_channels].sum()
-        probability_tables[''] = np.array([row_sum, 1 - row_sum])
+        Returns:
+            list: List of binary state combinations as strings.
+        """
+        combinations = list(itertools.product([0, 1], repeat=num_elements))
+        combinations_string = ["".join(map(str, comb)) for comb in combinations]
 
-    for f_channel in future_channels:
-        if current_channels == '':
-            probability_tables[f_channel] = get_prob_empty_current(
-                probs_table[f_channel])
-            continue
+        return combinations_string
 
-        table_prob = mg.get_marginalize_channel(
-            probs_table[f_channel], current_channels, all_channels)
+    @staticmethod
+    def get_probability_tables(process_data: dict, probs_table: dict) -> dict:
+        """
+        Calculates marginal probabilities for given channels and state.
 
-        row_probability = table_prob.loc[state_current_channels]
-        probability_tables[f_channel] = row_probability.values
+        Args:
+            process_data (dict): Process data including channels and states.
+            probs_table (dict): Probability tables.
 
-    return probability_tables
+        Returns:
+            dict: Marginal probabilities for each future channel.
+        """
+        future_channels = process_data["future"]
+        current_channels = process_data["current"]
+        state_current_channels = process_data["state"]
+        all_channels = process_data["channels"]
+        probability_tables = {}
 
+        if future_channels == "":
+            full_matrix = ProbabilityCalculator.get_original_probability(
+                probs_table, current_channels, future_channels, all_channels
+            )
+            marginalize_table = get_marginalize_channel(
+                full_matrix, current_channels, all_channels
+            )
 
-def get_prob_empty_current(table):
-    return table.mean(axis=0).values
+            row_sum = marginalize_table.loc[state_current_channels].sum()
+            probability_tables[""] = np.array([row_sum, 1 - row_sum])
 
+        for f_channel in future_channels:
+            if current_channels == "":
+                probability_tables[f_channel] = (
+                    ProbabilityCalculator.get_prob_empty_current(probs_table[f_channel])
+                )
+                continue
 
-# Caclula la mattice de probabilidad de current * future, siendo esta la tabla base
-# A comparar con las tablas marginalizadas
-def get_original_probability(probs_table, current_channels, future_channels, all_channels):
-    marg_table = {}
+            table_prob = get_marginalize_channel(
+                probs_table[f_channel], current_channels, all_channels
+            )
 
-    for key, table in probs_table.items():
-        if key in future_channels:
-            new_table = mg.get_marginalize_channel(
-                table, current_channels, all_channels)
-            marg_table[key] = new_table
+            row_probability = table_prob.loc[state_current_channels]
+            probability_tables[f_channel] = row_probability.values
 
-    key_index = next(iter(marg_table))
-    index_tables = marg_table[key_index].index
-    n_cols = 2 ** len(future_channels)
-    full_matriz = pd.DataFrame(columns=[f'{key}' for key in range(n_cols)])
+        return probability_tables
 
-    for index in index_tables:
-        prob_state = {}
-        for key, table in marg_table.items():
-            value = table.loc[index].values
-            prob_state[key] = value
+    @staticmethod
+    def get_prob_empty_current(table: pd.DataFrame) -> np.ndarray:
+        """
+        Computes the mean probabilities for a table when no current channels are present.
 
-        joint_prob = calculate_joint_probability(prob_state)
-        columns = joint_prob['state'].values
-        full_matriz.columns = columns
-        full_matriz.loc[index] = joint_prob['probability'].values
+        Args:
+            table (pd.DataFrame): Probability table.
 
-    return full_matriz
+        Returns:
+            np.ndarray: Mean probabilities.
+        """
+        return table.mean(axis=0).values
 
+    @staticmethod
+    def get_original_probability(
+        probs_table: dict,
+        current_channels: str,
+        future_channels: str,
+        all_channels: str,
+    ) -> pd.DataFrame:
+        """
+        Computes the original joint probability matrix for the given channels.
 
-# Obtiene la tabla marginalize para los canales futuros, con sus probabilidades en un canal de estado
-# almacena los resultados previos calculados para que sean reutilizados en los calculos
-# @process_data: diccionario con los canales del grafo y el estado actual
-# @probs_table: diccionario con las tablas de probabilidad
-# Dados los canales futuros a operar, marginaliza la tabla en sus respectivos canales current
-# Extrae el valor marginalizado de la tabla en el estado dado
-# @return: diccionario de canales actuales y si probabilidad en el estado dado
-# @return: diccionario con los canales futuros y su valor de probabilidad en el estado dado
-def get_probability_tables_partition(process_data, probs_table, table_comb, original_prob=None):
-    future_channels = process_data['future']
-    current_channels = process_data['current']
-    state_current_channels = process_data['state']
-    all_channels = process_data['channels']
-    probability_tables = {}
-    original_channels = process_data['original_channels']
+        Args:
+            probs_table (dict): Probability tables.
+            current_channels (str): Current channel string.
+            future_channels (str): Future channel string.
+            all_channels (str): All channel string.
 
-    key_comb = future_channels+'|'+current_channels
+        Returns:
+            pd.DataFrame: Joint probability matrix.
+        """
+        marg_table = {}
 
-    if future_channels == '':
-        result = get_future_empty(
-            original_prob, current_channels, original_channels, state_current_channels)
-        probability_tables[''] = result
-        if not table_comb[key_comb]:
-            table_comb[key_comb] = probability_tables
+        for key, table in probs_table.items():
+            if key in future_channels:
+                new_table = get_marginalize_channel.get_marginalize_channel(
+                    table, current_channels, all_channels
+                )
+                marg_table[key] = new_table
 
-        return table_comb[key_comb]
+        key_index = next(iter(marg_table))
+        index_tables = marg_table[key_index].index
+        n_cols = 2 ** len(future_channels)
+        full_matrix = pd.DataFrame(columns=[f"{key}" for key in range(n_cols)])
 
-    for f_channel in future_channels:
-        key = f_channel + '|' + current_channels
-        retult_table = {}
-        if table_comb[key]:
-            probability_tables.update(table_comb[key])
-            continue
+        for index in index_tables:
+            prob_state = {}
+            for key, table in marg_table.items():
+                value = table.loc[index].values
+                prob_state[key] = value
 
-        if current_channels == '':
-            result = get_prob_empty_current(probs_table[f_channel])
-            probability_tables[f_channel] = result
-            if not table_comb[key]:
-                table_comb[key] = probability_tables
-            continue
+            joint_prob = ProbabilityCalculator.calculate_joint_probability(prob_state)
+            columns = joint_prob["state"].values
+            full_matrix.columns = columns
+            full_matrix.loc[index] = joint_prob["probability"].values
 
-        table_prob = mg.get_marginalize_channel(
-            probs_table[f_channel], current_channels, all_channels)
+        return full_matrix
 
-        row_probability = table_prob.loc[state_current_channels]
-        retult_table[f_channel] = row_probability.values
-        probability_tables.update(retult_table)
-        if not table_comb[key]:
-            table_comb[key] = retult_table
+    @staticmethod
+    def tensor_product_partition(
+        partition_left: pd.DataFrame, partition_right: pd.DataFrame, parts_exp: tuple
+    ) -> pd.DataFrame:
+        """
+        Computes the tensor product of two partitions.
 
-    if not table_comb[key_comb]:
-        table_comb[key_comb] = probability_tables
+        Args:
+            partition_left (pd.DataFrame): Left partition DataFrame.
+            partition_right (pd.DataFrame): Right partition DataFrame.
+            parts_exp (tuple): Tuple of partition expressions.
 
-    return table_comb[key_comb]
+        Returns:
+            pd.DataFrame: Tensor product result as a DataFrame.
+        """
+        part_left, part_right = parts_exp
+        positions_channels = ProbabilityCalculator.get_position_elements(
+            part_left[0], part_right[0]
+        )
+        result = []
 
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(
+                    ProbabilityCalculator.compute_tensor_product,
+                    left,
+                    right,
+                    parts_exp,
+                    positions_channels,
+                )
+                for _, left in partition_left.iterrows()
+                for _, right in partition_right.iterrows()
+            ]
 
-# Caclula la matrix de probabilidad de current * future, para la particion.
-def original_probability_partition(probs_table, current_channels, future_channels, all_channels):
-    marg_table = {}
-    for key, table in probs_table.items():
-        if key in future_channels:
-            new_table = mg.get_marginalize_channel(
-                table, current_channels, all_channels)
-            marg_table[key] = new_table
+            for future in futures:
+                response = future.result()
+                result.append(response)
 
-    key_index = next(iter(marg_table))
-    index_tables = marg_table[key_index].index
-    n_cols = 2 ** len(future_channels)
-    full_matriz = pd.DataFrame(columns=[f'{key}' for key in range(n_cols)])
+        df_results = pd.DataFrame(result, columns=["state", "probability"])
 
-    for index in index_tables:
-        prob_state = {}
-        for key, table in marg_table.items():
-            value = table.loc[index].values
-            prob_state[key] = value
+        return df_results
 
-        joint_prob = calculate_joint_probability(prob_state)
-        columns = joint_prob['state'].values
-        full_matriz.columns = columns
-        full_matriz.loc[index] = joint_prob['probability'].values
+    @staticmethod
+    def compute_tensor_product(
+        part_left: pd.Series,
+        part_right: pd.Series,
+        parts_exp: tuple,
+        positions: tuple,
+    ) -> list:
+        """
+        Computes the tensor product for a single pair of partitions.
 
-    return full_matriz
+        Args:
+            part_left (pd.Series): Left partition row.
+            part_right (pd.Series): Right partition row.
+            parts_exp (tuple): Tuple of partition expressions.
+            positions (tuple): Positions for tensor product.
 
-# calcula el producto tensor, de la matriz de las dos particiones
-# el proceso de calcula de manera paralera, para cada uno de los componentes de la matriz
-# asi como el indice resultante de su operacion.
-def tensor_product_partition(partition_left, partition_right, parts_exp):
-    part_left, part_right = parts_exp
-    positions_channels = get_posicion_elements(part_left[0], part_right[0])
-    retult = []
+        Returns:
+            list: Tensor product result as [state, probability].
+        """
+        tensor_product = part_left["probability"] * part_right["probability"]
+        index_product = ProbabilityCalculator.get_index_product(
+            part_left["state"], part_right["state"], positions, parts_exp[0]
+        )
 
-    with ThreadPoolExecutor() as executor:
-        futures = [
-            executor.submit(
-                compute_tensor_product, left, right, parts_exp, positions_channels)
-            for _, left in partition_left.iterrows()
-            for _, right in partition_right.iterrows()
-        ]
+        return [index_product, tensor_product]
 
-        for future in futures:
-            response = future.result()
-            retult.append(response)
+    @staticmethod
+    def get_index_product(
+        state_left: str, state_right: str, positions: tuple, parts_exp: str
+    ) -> str:
+        """
+        Computes the resulting index for the tensor product of two states.
 
-    df_results = pd.DataFrame(retult, columns=['state', 'probability'])
+        Args:
+            state_left (str): State from the left partition.
+            state_right (str): State from the right partition.
+            positions (tuple): Positions for tensor product.
+            parts_exp (str): Expression for the left partition future.
 
-    return df_results
+        Returns:
+            str: Resulting state index.
+        """
+        if parts_exp == "":
+            return state_right
 
-# Calculo del producto tensor uno a uno
-def compute_tensor_product(part_left, part_right, parts_exp, positions):
-    tensor_product = part_left['probability'] * part_right['probability']
-    index_product = get_index_product(
-        part_left['state'], part_right['state'], positions, parts_exp[0])
+        result_string = list(state_left)
+        for index, char in zip(positions, state_right):
+            result_string.insert(index, char)
 
-    result = [index_product, tensor_product]
+        return "".join(result_string)
 
-    return result
+    @staticmethod
+    def get_position_elements(channels_left: str, channels_right: str) -> tuple:
+        """
+        Computes the positions of elements in the tensor product.
 
-# Retorna el indice resultante de la operacion tensor entre los dos elementos
-def get_index_product(state_left, state_right, positions, parts_exp):
-    part_let_future = parts_exp[0]
-    if part_let_future == "":
-        return state_right
+        Args:
+            channels_left (str): Channels on the left side.
+            channels_right (str): Channels on the right side.
 
-    result_string = list(state_left)
-
-    for index, char in zip(positions, state_right):
-        result_string.insert(index, char)
-
-    return ''.join(result_string)
-
-
-def get_posicion_elements(channels_left, channels_right):
-    unit_channels = ''.join(set(channels_left + channels_right))
-    order_channels = ''.join(sorted(unit_channels))
-
-    positions_channels = tuple(order_channels.index(char)
-                               for char in channels_right)
-
-    return positions_channels
-
-
-# Calcula la probabilidad para futuro vacio, marginalizando la tabla original 
-# y calculando la suma de las fila en el estado dado
-def get_future_empty(original_prob, current_channels, original_channels, state_current_channels):
-    maginalize_table = mg.get_marginalize_channel(
-        original_prob, current_channels, original_channels)
-    row_sum = maginalize_table.loc[state_current_channels].sum()
-    result = np.array([row_sum])
-
-    return result
+        Returns:
+            tuple: Positions of elements for the tensor product.
+        """
+        unit_channels = "".join(set(channels_left + channels_right))
+        order_channels = "".join

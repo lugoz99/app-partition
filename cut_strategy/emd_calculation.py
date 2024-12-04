@@ -3,69 +3,92 @@ from scipy.spatial.distance import cdist
 from pyemd import emd
 import numpy as np
 import pandas as pd
-
-from cut_strategy.probability import calculate_joint_probability
-
-
-def calcule_emd(probabilities, state, original_probability):
-    modofy_prob = get_probability_in_state(probabilities, state)
-    haming_matrix = hamming_distance_matrix(modofy_prob["state"].values)
-
-    list_modofy_prob = modofy_prob["probability"].values
-    list_original_prob = original_probability.loc[state].to_numpy()
-
-    list_modofy_prob = np.ascontiguousarray(list_modofy_prob, dtype=np.double)
-    list_original_prob = np.ascontiguousarray(list_original_prob, dtype=np.double)
-
-    emd_value = emd(list_modofy_prob, list_original_prob, haming_matrix)
-
-    return round(emd_value, 3)
+from cut_strategy.probability import ProbabilityCalculator
 
 
-def get_probability_in_state(probabilities, state):
-    prob_in_state = {}
-    for future, table in probabilities.items():
-        if isinstance(table, np.ndarray):
-            prob_in_state[future] = table
-            continue
-        if state in table.index:
-            prob_in_state[future] = table.loc[state].values
+class EMDEvaluator:
+    """
+    Encapsulates functionality for calculating Earth Mover's Distance (EMD)
+    and related probability metrics.
+    """
 
-    probability_result = calculate_joint_probability(prob_in_state)
+    @staticmethod
+    def calculate_emd(
+        probabilities: dict, state: str, original_probability: pd.DataFrame
+    ) -> float:
+        """
+        Calculates the Earth Mover's Distance (EMD) between modified and original probabilities.
 
-    return probability_result
+        Args:
+            probabilities (dict): Dictionary of modified probabilities.
+            state (str): State to evaluate.
+            original_probability (pd.DataFrame): Original probability table.
 
+        Returns:
+            float: Calculated EMD value.
+        """
+        modified_prob = EMDEvaluator.get_probability_in_state(probabilities, state)
+        hamming_matrix = EMDEvaluator.hamming_distance_matrix(
+            modified_prob["state"].values
+        )
 
-### Calcula la matrix de distancia hamming a partir de una matris de
-### estados dada.
-def hamming_distance_matrix(states):
-    state = list(map(lambda x: list(map(int, x)), states))
-    haming_matrix = cdist(state, state, "hamming") * len(state[0])
+        modified_values = np.ascontiguousarray(
+            modified_prob["probability"].values, dtype=np.double
+        )
+        original_values = np.ascontiguousarray(
+            original_probability.loc[state].to_numpy(), dtype=np.double
+        )
 
-    return haming_matrix
+        return round(emd(modified_values, original_values, hamming_matrix), 3)
 
+    @staticmethod
+    def get_probability_in_state(probabilities: dict, state: str) -> pd.DataFrame:
+        """
+        Extracts probabilities for a specific state from the given probabilities.
 
-### Calcula la distacia de emd entre dos distribuciones de probabilidad para el metodo de particionamiento.
-def emd_partition(probability_table, original_probability, state):
-    list_index = list(original_probability.columns)
-    order_table = sorter_dataframe(probability_table, list_index)
-    haming_matrix = hamming_distance_matrix(order_table["state"].values)
+        Args:
+            probabilities (dict): Dictionary of probability tables.
+            state (str): State to extract probabilities for.
 
-    list_modofy_prob = order_table["probability"].values
-    list_original_prob = original_probability.loc[state].to_numpy()
+        Returns:
+            pd.DataFrame: Joint probability table for the given state.
+        """
+        prob_in_state = {}
+        for future, table in probabilities.items():
+            if isinstance(table, np.ndarray):
+                prob_in_state[future] = table
+            elif state in table.index:
+                prob_in_state[future] = table.loc[state].values
 
-    list_modofy_prob = np.ascontiguousarray(list_modofy_prob, dtype=np.double)
-    list_original_prob = np.ascontiguousarray(list_original_prob, dtype=np.double)
+        return ProbabilityCalculator.calculate_joint_probability(prob_in_state)
 
-    emd_value = emd(list_modofy_prob, list_original_prob, haming_matrix)
+    @staticmethod
+    def hamming_distance_matrix(states: np.ndarray) -> np.ndarray:
+        """
+        Calculates the Hamming distance matrix for the given states.
 
-    return emd_value
+        Args:
+            states (np.ndarray): Array of states.
 
+        Returns:
+            np.ndarray: Hamming distance matrix.
+        """
+        states_as_list = list(map(lambda x: list(map(int, x)), states))
+        return cdist(states_as_list, states_as_list, "hamming") * len(states_as_list[0])
 
-def sorter_dataframe(dataframe, list_order):
-    dataframe["order"] = pd.Categorical(
-        dataframe["state"], categories=list_order, ordered=True
-    )
-    new_df = dataframe.sort_values("order").drop(columns="order")
+    @staticmethod
+    def sort_dataframe_by_order(dataframe: pd.DataFrame, order: list) -> pd.DataFrame:
+        """
+        Sorts a DataFrame by a specific order of states.
 
-    return new_df
+        Args:
+            dataframe (pd.DataFrame): DataFrame to sort.
+            order (list): List specifying the desired order of states.
+
+        Returns:
+            pd.DataFrame: Sorted DataFrame.
+        """
+        dataframe["order"] = pd.Categorical(
+            dataframe["state"], categories=order, ordered=True
+        )
+        return dataframe.sort_values("order").drop(columns="order")

@@ -1,143 +1,133 @@
-from graph.graph import Graph
-import emd.emd_calculation as emd
-import graph.remove_edges as remove_edges
 import networkx as nx
-import probability.utils as utils
+from cut_strategy.graph import GraphManager
+from cut_strategy.emd_calculation import EMDEvaluator
+from cut_strategy.utils import Utils as utils
 
 
-# Busca una particion de mejor perdida, eliminando grupos de aristas hasta encontrar
-# la que su valor de perdida sea menor.
-# @ param network: grafo con las aristas 0 eliminadas
-# @ return: grafo con la mejor particion
-# Mientras hay grafos para evaluar, el proceso continua
-# Estos se ordenan por perdida y aristas eliminadas
-# Una vez evaluados, revisa su hay solucion y almacena en best_solutions
-# Una vez evaluados todos los grafos
-# @ return: grafo de mejor solucion
-def find_best_partition(network: Graph, proccess_data, original_prob):
-    network.loss_value = 0
-    val_cup = calcule_cut_value(network, len(proccess_data['current']))
-    proccess_data['channels'] = proccess_data['current']
-    proccess_data['val_cup'] = val_cup
-    best_solutions = []
-    graphs_evaluated = [network]
-    graph_solition = None
-    best_value = float('inf')
-    finish = False
-    graph = None
+class PartitionFinder:
+    """
+    Encapsulates functionality to find the best partition in a graph by minimizing loss.
+    """
 
-    while len(graphs_evaluated) > 0 and not finish:
-        # Ordena los grafos de menor a mayor perdida y con mayor numero de aristas eliminadas 
-        graphs_sort = sorted(graphs_evaluated, key=lambda graph: (
-            graph.loss_value, len(graph.removed_edges)))
-        graph = graphs_sort[0]
-        edges_graph = graph.edges(data=True)
-        sort_edges = sorted(edges_graph, key=lambda x: x[2]['weight'])
-        new_graphs_deletes_edge = create_graphs_delete_edge(
-            graph, best_solutions, sort_edges, proccess_data, original_prob)
-        
-        graphs_evaluated.remove(graph)
+    def __init__(self, network: GraphManager, process_data: dict, original_prob):
+        self.network = network
+        self.process_data = process_data
+        self.original_prob = original_prob
+        self.best_solutions = []
+        self.graphs_to_evaluate = [network]
+        self.best_solution_graph = None
 
-        graphs_evaluated.extend(new_graphs_deletes_edge)
+    def find_best_partition(self):
+        """
+        Finds the best partition by iteratively evaluating graph partitions.
 
-        if len(best_solutions) > 0:
-            for graph in best_solutions:
-                emd_value = graph.loss_value
-                if emd_value < best_value:
-                    best_value = emd_value
-                    graph_solition = graph
+        Returns:
+            GraphManager: The graph with the best partition found.
+        """
+        self.network.loss_value = 0
+        self.process_data["val_cup"] = self._calculate_cut_value()
 
-    return graph_solition
+        while self.graphs_to_evaluate:
+            current_graph = self.graphs_to_evaluate.pop(0)
+            sorted_edges = self._get_sorted_edges(current_graph)
 
+            new_graphs = self._evaluate_edges(current_graph, sorted_edges)
+            self.graphs_to_evaluate.extend(new_graphs)
 
-# Para cada grafo a evaluar, crea un nuevo grafo con la arista eliminada que este dentro de la cota
-# Calcula su nueva probabilidad y valor de perdida, si el grafo deja de ser conexto
-# es un grafo solucion y lo almacena en best_solutions, ademas cambia la cota de corte
-# de ser conexo agrega el grafo a grafos por evaluar si su perdida es menor a la cota actual
-# @return: Lista de grafos por evaluar
-def create_graphs_delete_edge(father_network: Graph, best_solutions: list, edges, proccess_data, original_prob):
-    new_graphs = []
-    emd_graph = father_network.loss_value
+        return self.best_solution_graph
 
-    for edge in edges:
-        edge_evaluated = (edge[0], edge[1], edge[2]['weight'])
-        posible_emd, _ = calcule_posible_emd(
-            father_network.removed_edges, edge_evaluated, emd_graph)
-        if posible_emd <= proccess_data['val_cup']:
-            new_graph = remove_edges.create_new_graph(father_network, edge)
-            new_graph.removed_edges.extend(father_network.removed_edges)
+    def _calculate_cut_value(self):
+        """
+        Calculates the initial cut-off value based on edge weights and current channels.
 
-            new_tables_prob = remove_edges.calcule_table_probabilities(
-                father_network, proccess_data, edge)
-            found_emd = emd.calcule_emd(
-                new_tables_prob, proccess_data['state'], original_prob)
-            new_graph.loss_value = found_emd
-            new_graph.table_probability = new_tables_prob
-            # print(f'Edge: {edge_evaluated} - Value: {posible_emd}')
-            # print(f'Evalate Node: {posible_emd} <= cut value: {proccess_data['val_cup']}')
-            # print(f'found EMD: {found_emd}')
-            # print(f'Edges: {new_graph.edges(data=True)}')
-            # print(f'EdgesRemoved: {new_graph.removed_edges}')
-            # print(f'Is connected: {nx.is_connected(new_graph)}')
+        Returns:
+            float: Initial cut-off value.
+        """
+        total_weight = sum(
+            data["weight"] for _, _, data in self.network.edges(data=True)
+        )
+        num_channels = len(self.process_data["current"])
+        return round((total_weight / len(self.network.edges())) * num_channels, 3)
 
-            if not nx.is_connected(new_graph):
-                if found_emd < proccess_data['val_cup']:
-                    best_solutions.append(new_graph)
-                    proccess_data['val_cup'] = found_emd
-                    #print(f'\n New best value: {found_emd}\n')
+    def _get_sorted_edges(self, graph: GraphManager):
+        """
+        Sorts edges in the graph by their weight.
+
+        Args:
+            graph (GraphManager): The graph whose edges are to be sorted.
+
+        Returns:
+            list: Sorted list of edges.
+        """
+        return sorted(graph.edges(data=True), key=lambda x: x[2]["weight"])
+
+    def _evaluate_edges(self, graph: GraphManager, edges):
+        """
+        Evaluates and processes graph partitions by removing edges.
+
+        Args:
+            graph (GraphManager): The graph being evaluated.
+            edges (list): List of edges to evaluate.
+
+        Returns:
+            list: New graphs generated by removing edges.
+        """
+        new_graphs = []
+
+        for edge in edges:
+            candidate_graph = self._create_candidate_graph(graph, edge)
+
+            if not nx.is_connected(candidate_graph):
+                self._process_solution(candidate_graph)
             else:
-                #print(f'Condicional New graph:{found_emd} < {proccess_data['val_cup']}\n')
-                if found_emd < proccess_data['val_cup']:
-                    new_graphs.append(new_graph)
-            
-            #print('------------------------\n')
+                self._process_candidate(candidate_graph, new_graphs)
 
-    return new_graphs
+        return new_graphs
 
+    def _create_candidate_graph(self, graph: GraphManager, edge):
+        """
+        Creates a new graph by removing an edge and recalculating probabilities.
 
-# Agrupamos los nodos eliminados y agregamos el nuevo nodo a eliminar a un mismo nodo destino, 
-# el mayor peros de estos es el rango de inicio La suma de estos es el rango superior. 
-# Sumamos los grupos de nodos eliminados de esa manera de obtener un posible rango de perdida.
-def calcule_posible_emd(removed_edges, new_edge, emd_graph):
-    group_nodes = {}
-    no_zero_edges = [edge for edge in removed_edges if edge[2] != 0]
-    no_zero_edges.append(new_edge)
+        Args:
+            graph (GraphManager): Original graph.
+            edge (tuple): Edge to be removed.
 
-    if len(no_zero_edges) == 0:
-        return emd_graph + new_edge[2]
+        Returns:
+            GraphManager: New graph with updated probabilities.
+        """
+        new_graph = graph.copy()
+        new_graph.remove_edge(edge[0], edge[1])
+        new_graph.removed_edges.append(edge)
 
-    for edge in no_zero_edges:
-        node1, node2, weight = edge
-        destino, origen = utils.get_type_nodes(node1, node2)
+        new_probabilities = EMDEvaluator.calculate_new_probabilities(
+            new_graph, self.process_data, edge
+        )
+        new_graph.table_probability = new_probabilities
+        new_graph.loss_value = EMDEvaluator.calculate_emd(
+            new_probabilities, self.process_data["state"], self.original_prob
+        )
 
-        if destino not in group_nodes:
-            group_nodes[destino] = {}
+        return new_graph
 
-        group_nodes[destino]["base"] = weight if weight > group_nodes[destino].get(
-            "base", 0) else group_nodes[destino].get("base", 0)
-        group_nodes[destino]["sum"] = group_nodes[destino].get(
-            "sum", 0) + weight
+    def _process_solution(self, graph: GraphManager):
+        """
+        Processes a graph that is no longer connected, potentially updating the best solution.
 
-    base_values = round(sum(value['base']
-                        for value in group_nodes.values()), 3)
-    sum_values = sum(value['sum'] for value in group_nodes.values())
+        Args:
+            graph (GraphManager): Disconnected graph to evaluate as a solution.
+        """
+        if graph.loss_value < self.process_data["val_cup"]:
+            self.best_solutions.append(graph)
+            self.process_data["val_cup"] = graph.loss_value
+            self.best_solution_graph = graph
 
-    return base_values, sum_values
+    def _process_candidate(self, graph: GraphManager, new_graphs):
+        """
+        Adds a candidate graph to the list of graphs to evaluate if it meets the criteria.
 
-
-# La cota inicial se calcula con el valor de perdida promedio de todas las aristas
-# por la maxima cantidad de aristas que puede cortar antes de encontrar una particion,
-# este valor equivale al numero de canales actuales. Todas las ariasta encima de este valor
-# no se expanderan para encontrar una particion.
-def calcule_cut_value(network: Graph, num_channels_current):
-    sum_val_emd = 0
-
-    for edge in network.edges(data=True):
-        _, _, details_edge = edge
-        weight = details_edge['weight']
-
-        sum_val_emd += weight
-
-    value_cup = (sum_val_emd / len(network.edges())) * num_channels_current
-
-    return round(value_cup, 3)
+        Args:
+            graph (GraphManager): Candidate graph.
+            new_graphs (list): List of graphs to evaluate.
+        """
+        if graph.loss_value < self.process_data["val_cup"]:
+            new_graphs.append(graph)

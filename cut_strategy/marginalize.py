@@ -1,52 +1,92 @@
 import pandas as pd
 
 
-### Dada una tabla de probabilidad y los canales que quedan luego de eliminar uno de ellos
-### calcula la marginalizacion de la tabla.
-### @ param table_prob: tabla de probabilidad
-### @ param current_channels: canales sobrantes
-### @ param all_channels: todos los canales de la tabla
-def get_marginalize_channel(tabla_marg, current_channels, all_channels='ABC'):
-    table_prob = tabla_marg.copy()
-    table_prob['state'] = tabla_marg.index
-    new_channels = all_channels
+class Marginalizer:
+    """
+    Encapsulates functionality for marginalizing probability tables.
+    """
 
-    for channel in all_channels:
-        if channel not in current_channels:
-            table_prob, new_channels = marginalize_table(
-                table_prob, channel, new_channels)
-            
-    table_prob = table_prob.reset_index().set_index('state')
-    table_prob.index.name = None
-    table_prob = table_prob.drop('index', axis=1)
-    if 'state' in table_prob.columns:
-        table_prob = table_prob.drop(columns='state', inplace=True)
-    
-    return table_prob
+    @staticmethod
+    def get_marginalize_channel(table_prob, current_channels, all_channels="ABC"):
+        """
+        Marginalizes a probability table by removing specified channels.
 
+        Args:
+            table_prob (pd.DataFrame): Probability table to marginalize.
+            current_channels (str): Channels to retain.
+            all_channels (str): All channels present in the table.
 
-### Elimina el estado del canal en la posicion del mismo, luego agrupa la tabla
-### en los nuevos estados resultantes y promedia sus valores.
-def marginalize_table(table, channel, channels='ABC'):
-    position_element = channels.find(channel)
-    table['state'] = table['state'].apply(modify_state, element=position_element)
-    promd_table = table.groupby('state').mean()
-    promd_table = promd_table.reset_index()
-    new_channels = change_channels(channel, channels)
+        Returns:
+            pd.DataFrame: Marginalized probability table.
+        """
+        table_prob = table_prob.copy()
+        table_prob["state"] = table_prob.index
+        new_channels = all_channels
 
-    return promd_table, new_channels
-    
-def modify_state(state, element):
-    state = list(state)
-    del state[element]
+        for channel in all_channels:
+            if channel not in current_channels:
+                table_prob, new_channels = Marginalizer.marginalize_table(
+                    table_prob, channel, new_channels
+                )
 
-    return ''.join(state)
+        table_prob = table_prob.reset_index().set_index("state")
+        table_prob.index.name = None
+        table_prob = table_prob.drop(columns=["index"], errors="ignore")
 
+        return table_prob
 
-### Retorna los canales sobrantes de la marginalizacion
-def change_channels(channel, channels='ABC'):
-    element = channels.find(channel)
-    if element != -1:
-        return channels[:element] + channels[element + 1:]
+    @staticmethod
+    def marginalize_table(table, channel, channels="ABC"):
+        """
+        Removes a channel from the state column and averages the table over new states.
 
-    return channels
+        Args:
+            table (pd.DataFrame): Probability table to marginalize.
+            channel (str): Channel to remove.
+            channels (str): All channels in the table.
+
+        Returns:
+            tuple: (Marginalized table, Updated channels).
+        """
+        position_element = channels.find(channel)
+        table["state"] = table["state"].apply(
+            Marginalizer.modify_state, element=position_element
+        )
+        marginalized_table = table.groupby("state").mean().reset_index()
+        new_channels = Marginalizer.change_channels(channel, channels)
+
+        return marginalized_table, new_channels
+
+    @staticmethod
+    def modify_state(state, element):
+        """
+        Modifies a state by removing a specific channel position.
+
+        Args:
+            state (str): Original state.
+            element (int): Position of the channel to remove.
+
+        Returns:
+            str: Modified state.
+        """
+        state = list(state)
+        del state[element]
+        return "".join(state)
+
+    @staticmethod
+    def change_channels(channel, channels="ABC"):
+        """
+        Updates the list of channels after a marginalization.
+
+        Args:
+            channel (str): Channel to remove.
+            channels (str): All channels in the table.
+
+        Returns:
+            str: Updated list of channels.
+        """
+        element = channels.find(channel)
+        if element != -1:
+            return channels[:element] + channels[element + 1 :]
+
+        return channels
