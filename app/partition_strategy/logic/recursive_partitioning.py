@@ -50,39 +50,29 @@ class RecursiveCandidateSelection:
         self.complete = StateProbabilityCalculator(
             self.states, self.probabilities, self.var_names
         )
+        
+    def producto_tensorial(self,a: np.ndarray ,b: np.ndarray):
+         return np.kron(a,b).flatten()
 
     def calcular_probabilidad_fusionada(self, fusion_node):
-        """
-        Procesa nodos fusionados o simples, comenzando desde los más internos.
-        """
         if isinstance(fusion_node, tuple):  # Nodo fusionado
-            print(f"Procesando tupla: {fusion_node}")
-            
-            # Procesar el nodo más interno primero
             resultados_internos = []
             for sub_node in fusion_node:
-                # Inicializar y calcular probabilidades recursivamente
                 sub_probs = self.calcular_probabilidad_fusionada(sub_node)
                 resultados_internos.append(sub_probs)
-            
-            # Calcular el producto tensorial entre los resultados
+
             probabilidad_fusionada = resultados_internos[0]
             for siguiente in resultados_internos[1:]:
-                probabilidad_fusionada = np.kron(probabilidad_fusionada, siguiente)
-            
-            print(f"Probabilidad combinada para {fusion_node}: {probabilidad_fusionada}")
-            return probabilidad_fusionada
+                probabilidad_fusionada = self.producto_tensorial(probabilidad_fusionada, siguiente)
 
+            probabilidad_fusionada = probabilidad_fusionada / np.sum(probabilidad_fusionada)  # Normalizar
+            return probabilidad_fusionada
         else:  # Nodo simple
-            print(f"Inicializando nodo simple: {fusion_node}")
-            v = self.candidate.inicializar_sistema(
-                opcion=OpcionSistema.VM, VM=[fusion_node]
-            )
+            v = self.candidate.inicializar_sistema(opcion=OpcionSistema.VM, VM=[fusion_node])
             simple_probs = self.complete.calculate_probabilities(
                 v["Current State"], v["Next State"], v["Current Values"]
             )
-            print(f"Probabilidad para nodo {fusion_node}: {simple_probs}")
-            return simple_probs
+            return simple_probs / np.sum(simple_probs)  # Normalizar
 
 
     def calculate_g(self, subset: OrderedSet, total_set: OrderedSet) -> float:
@@ -100,10 +90,8 @@ class RecursiveCandidateSelection:
         
         # 2. Probabilidad del subconjunto actual (subset)
         if any(isinstance(node, tuple) for node in subset):
-            # Si hay tuplas, procesarlas recursivamente
             p_v_set = self.calcular_probabilidad_fusionada(tuple(subset))
         else:
-            # Procesar el subset como un conjunto de nodos simples
             v_w_u = self.candidate.inicializar_sistema(opcion=OpcionSistema.VM, VM=list(subset))
             p_v_set = self.complete.calculate_probabilities(
                 v_w_u["Current State"], v_w_u["Next State"], v_w_u["Current Values"]
@@ -121,48 +109,78 @@ class RecursiveCandidateSelection:
         )
         print(f"Probabilidad del complemento del subconjunto: {p_v_set_complement}")
         
-        # 4. Producto tensorial entre las probabilidades
-        tensor_product_vm = np.kron(p_v_set, p_v)
-        tensor_product_vm_complemento = np.kron(p_v_set_complement, p_v)
+        # 4. Verificar y normalizar probabilidades
+        if np.sum(p_v_set) != 1:
+            p_v_set = p_v_set / np.sum(p_v_set)
+        if np.sum(p_v_set_complement) != 1:
+            p_v_set_complement = p_v_set_complement / np.sum(p_v_set_complement)
         
-        # 5. Cálculo de EMD (Earth Mover's Distance)
+        # 5. Producto tensorial entre las probabilidades
+        tensor_product_vm = self.producto_tensorial(p_v_set, p_v)
+        tensor_product_vm_complemento = self.producto_tensorial(p_v_set_complement, p_v)
+        
+        # 6. Cálculo de EMD (Earth Mover's Distance)
         emd_value = EMD(tensor_product_vm, tensor_product_vm_complemento)
         print(f"[calculate_g] EMD (g): {emd_value}")
         
         return emd_value
 
+
     def encontrar_particiones_optimas(self, V: OrderedSet, particiones=[]):
+        """
+        Encuentra las particiones óptimas del conjunto V utilizando el algoritmo recursivo.
+        
+        Args:
+            V (OrderedSet): El conjunto inicial de nodos.
+            particiones (list): Lista de particiones generadas (se acumula en recursión).
+        
+        Returns:
+            list: Lista de particiones óptimas.
+        """
         if len(V) < 2:
             raise ValueError("El conjunto V debe tener al menos dos elementos.")
 
         n = len(V)
-        W = [OrderedSet() for _ in range(n + 1)]
-        W[1] = OrderedSet([list(V)[0]])  # Explicitar la selección del primer elemento
+        W = [OrderedSet() for _ in range(n + 1)]  # Inicializar W0, W1, ..., Wn
+        W[1] = OrderedSet([list(V)[0]])  # Selección inicial de W1
 
+        # Selección incremental de nodos
         for i in range(2, n + 1):
             vi_min = None
             min_valor = float("inf")
+
             for vi in V:
                 if vi not in W[i - 1]:
-                    valor = self.calculate_g(
-                        tuple(W[i - 1] | OrderedSet([vi])), tuple(V)
-                    ) - self.calculate_g((vi,), tuple(V))
+                    # Calcular g(W[i-1] ∪ {vi}) y g({vi})
+                    g_union = self.calculate_g(tuple(W[i - 1] | OrderedSet([vi])), tuple(V))
+                    g_single = self.calculate_g((vi,), tuple(V))
+                    valor = g_union - g_single
+                    print(f"Evaluando nodo {vi}: g_union={g_union}, g_single={g_single}, diferencia={valor}")
+
                     if valor < min_valor:
                         min_valor = valor
                         vi_min = vi
+
+            # Añadir vi_min al conjunto W[i]
             W[i] = W[i - 1] | OrderedSet([vi_min])
 
+        # Generar el par candidato
         par_candidato = (list(W[n - 1])[-1], list(W[n])[-1])
+        print(f"Par candidato: {par_candidato}")
+
+        # Generar particiones
         particion1 = OrderedSet([par_candidato[1]])
         particion2 = OrderedSet(V) - particion1
         particiones.append(
             (particion1, particion2, self.calculate_g(tuple(particion1), tuple(V)))
         )
 
+        # Fusión y recursión
         if len(V) > 2:
-            u = tuple(par_candidato)
-            nuevo_V = OrderedSet([x for x in V if x not in par_candidato] + [u])
-            print("LLEGUE A LA RECURSION")
+            u = tuple(par_candidato)  # Crear el nodo fusionado
+            nuevo_V = OrderedSet([x for x in V if x not in par_candidato] + [u])  # Actualizar V
+
+            # Añadir la partición fusionada
             particiones.append(
                 (
                     OrderedSet([u]),
@@ -170,13 +188,17 @@ class RecursiveCandidateSelection:
                     self.calculate_g((u,), tuple(V)),
                 )
             )
+
+            # Llamada recursiva con el nuevo conjunto
             self.encontrar_particiones_optimas(nuevo_V, particiones)
 
-        particion: List[PartitionModel] = [
+        # Convertir particiones en objetos PartitionModel
+        particion = [
             PartitionModel(p[0], p[1], p[2]) for p in particiones
         ]
 
         return particion
+
 
     @staticmethod
     def encontrar_particion_con_menor_emd(particiones):
