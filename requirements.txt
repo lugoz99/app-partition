@@ -1,4 +1,6 @@
 numpy<2
 pyemd
 scipy
-
+ordered-set
+networkx
+pandas
